@@ -1,0 +1,12 @@
+#!/bin/bash
+
+echo "plugin called....." >> /tmp/junk
+echo $@ >> /tmp/junk
+echo `env` >> /tmp/junk
+echo '{
+  "cniVersion": "0.2.0",
+  "ip4": {
+     "ip": "127.0.0.1/24"
+  }
+}
+'
