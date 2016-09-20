@@ -8,10 +8,12 @@ import (
 type Ipam interface {
 	GetNextIP() (*net.IP, error)
 	ReleaseIP(ip *net.IP) error
+	Gateway() (*net.IP, error)
 }
 
 type IpamAllocator struct {
-	*netutils.SubnetAllocator
+	allocator *netutils.SubnetAllocator
+	network *net.IPNet
 }
 
 func NewIPAM(network string) (Ipam, error) {
@@ -23,11 +25,17 @@ func NewIPAM(network string) (Ipam, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &IpamAllocator{subnetAllocator}, nil
+	_, ipnet, _ := net.ParseCIDR(network)
+	return &IpamAllocator{allocator: subnetAllocator, network: ipnet}, nil
+}
+
+func (ipam *IpamAllocator) Gateway() (*net.IP, error) {
+	ip := netutils.GenerateDefaultGateway(ipam.network)
+	return &ip, nil
 }
 
 func (ipam *IpamAllocator) GetNextIP() (*net.IP, error) {
-	ipnet, err := ipam.GetNetwork()
+	ipnet, err := ipam.allocator.GetNetwork()
 	if err != nil {
 		return nil, err
 	}
@@ -39,5 +47,5 @@ func (ipam *IpamAllocator) ReleaseIP(ip *net.IP) error {
 	if err != nil {
 		return err
 	}
-	return ipam.ReleaseNetwork(ipnet)
+	return ipam.allocator.ReleaseNetwork(ipnet)
 }

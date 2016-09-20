@@ -1,12 +1,70 @@
 #!/bin/bash
 
-echo "plugin called....." >> /tmp/junk
 echo $@ >> /tmp/junk
 echo `env` >> /tmp/junk
-echo '{
-  "cniVersion": "0.2.0",
-  "ip4": {
-     "ip": "127.0.0.1/24"
-  }
+
+cniargs=${CNI_ARGS}
+podname=`echo $cniargs | cut -d ";" -f 3 | cut -d "=" -f 2`
+ifname=${CNI_IFNAME}
+netns=${podname}
+
+function add() {
+	touch /var/run/netns/${podname}
+	mount --bind ${CNI_NETNS} /var/run/netns/${podname}
+
+	ip=`curl http://localhost:9090/`
+	IP_ADDR=$ip
+	hex_suffix=`printf '%02x' ${IP_ADDR//./ }; echo -n`
+
+	ip link add veth${hex_suffix}0 type veth peer name veth${hex_suffix}1
+	brctl addif ocibr0 veth${hex_suffix}0
+	ip link set dev veth${hex_suffix}0 up
+	ip link set veth${hex_suffix}1 netns $netns
+	ip netns exec $netns ip link set veth${hex_suffix}1 name $ifname
+	ip netns exec $netns ip addr add ${ip}/24 dev $ifname
+	ip netns exec $netns ip link set dev $ifname up
+	echo "{
+	  \"cniVersion\": \"0.2.0\",
+	  \"ip4\": {
+	     \"ip\": \"${ip}/24\"
+	  }
+	}
+	"
 }
-'
+
+function del() {
+	ip=`ip netns exec $netns ip -o -4 addr show dev $ifname scope global | tr -s " " | cut -d " " -f 4 | cut -d "/" -f 1`
+	IP_ADDR=$ip
+	hex_suffix=`printf '%02x' ${IP_ADDR//./ }; echo -n`
+
+	brctl delif ocibr0 veth${hex_suffix}0
+	ip link del dev veth${hex_suffix}0
+	# release the ip address
+	out=`curl http://localhost:9090/$ip -X DELETE`
+
+	# delete the netns binding
+	umount /var/run/netns/${netns}
+	rm -f /var/run/netns/${netns}
+}
+
+action=${CNI_COMMAND}
+
+function run() {
+    echo "Running $action " >> /tmp/junk
+    case "$action" in
+	ADD)
+	    echo "Running Add" >> /tmp/junk
+	    add
+            ;;
+
+	DEL)
+	    del
+            ;;
+
+	*)
+            echo "Bad input: $@" >> /tmp/junk
+            exit 1
+    esac
+}
+
+run
