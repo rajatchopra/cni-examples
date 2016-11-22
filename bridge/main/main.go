@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"github.com/rajatchopra/cni-examples/bridge/ipam"
+	"flag"
 	"net"
 	"net/http"
 )
@@ -10,11 +11,26 @@ import (
 var ipamAllocator ipam.Ipam
 
 func main() {
-	i, err := ipam.NewIPAM("")
-	ipamAllocator = i
+	var subnet string
+	flag.StringVar(&subnet, "subnet", "10.1.0.0/16", "Subnet for the IPAM. Defaults to 10.1.0.0/24")
+	flag.Parse()
+	_, ipnet, err := net.ParseCIDR(subnet)
 	if err != nil {
-		fmt.Printf("ERROR[1]: %v", err)
+		fmt.Printf("ERROR[1]: Not a valid CIDR: %v", subnet)
+		return
 	}
+	i, err := ipam.NewIPAM(ipnet.String())
+	if err != nil {
+		fmt.Printf("ERROR[2]: %v", err)
+		return
+	}
+	ipamAllocator = i
+	gw, err := ipamAllocator.DefaultGateway()
+	if err != nil {
+		fmt.Printf("ERROR[3]: %v", err)
+		return
+	}
+	ipamAllocator.SetGateway(gw)
 
 	serve()
 	return
@@ -24,7 +40,7 @@ func serve() {
 	http.HandleFunc("/", ipamHandler)       // set router
 	err := http.ListenAndServe(":9090", nil) // set listen port
 	if err != nil {
-		fmt.Printf("ERROR[3]: %v", err)
+		fmt.Printf("ERROR[4]: %v", err)
 	}
 }
 
@@ -35,7 +51,7 @@ func ipamHandler(w http.ResponseWriter, r *http.Request) {
 		if (r.URL.Path == "/gateway") {
 			gw, err := ipamAllocator.Gateway()
 			if err != nil {
-				http.Error(w, err.Error(), 500)
+				fmt.Printf("ERROR[3]: %v", err)
 				return
 			}
 			fmt.Fprintf(w,"%s", gw.String())
